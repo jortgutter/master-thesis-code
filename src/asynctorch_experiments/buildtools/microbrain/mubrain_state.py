@@ -124,15 +124,10 @@ class MubrainIFState(LIFState):
         return self.membrane_potentials
 
     def step_dynamics(self, dt: float):
-        # >> Decay membrane potential
-        #beta = torch.exp(-dt * self.tau_m_inversed)
-        
-        #self.membrane_potentials = self.membrane_potentials * beta
         # >> Reset refractory period, and pre-spike membrane potential
         if self.apply_refrac:
             self.is_refrac = torch.zeros_like(self.membrane_potentials, dtype=torch.bool)
         self.pre_spike_membrane_potentials = torch.zeros_like(self.membrane_potentials, dtype=torch.float)
-
 
     def forward(self, I_new: torch.Tensor, n_I_new: torch.Tensor) -> torch.Tensor:
         if not self.is_init():
@@ -147,13 +142,22 @@ class MubrainIFState(LIFState):
         # >> Ensure strictly positive membrane potentials
         membrane_potentials = torch.clamp_min(membrane_potentials, min=0)
 
+
+        # >> pseudo quantize membrane potentials
+        num_bits=7
+        qmax = 2.**num_bits - 1.
+        scale = qmax
+        q_membrane_potentials = membrane_potentials * scale 
+        q_membrane_potentials.clamp_(0, 2*qmax).round_()
+        q_membrane_potentials = q_membrane_potentials / scale
+
         # >> Check thresholds and spike
         spk = MubrainIFFunction.apply(
-            membrane_potentials, self.membrane_threshold, self.spike_grad, self.backprop_threshold
+            q_membrane_potentials, self.membrane_threshold, self.spike_grad, self.backprop_threshold
         )
 
         # >> Update membrane potential, leaving modulo
-        self.membrane_potentials =  (membrane_potentials - spk)
+        self.membrane_potentials =  (q_membrane_potentials - spk)
         with torch.no_grad():
             self.pre_spike_membrane_potentials = membrane_potentials * spk + self.pre_spike_membrane_potentials * (1 - spk)
             # >> Set refractory period

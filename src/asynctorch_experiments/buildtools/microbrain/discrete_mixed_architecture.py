@@ -34,6 +34,10 @@ class DiscreteAsyncLayer(AsyncLayer):
         output_counts[:, self.to_neuron_indices] = inputs.count_nonzero(dim=1).float().view(batch_size, 1)
         if self.reshape_input_to is not None:
             inputs = inputs.view(batch_size, *self.reshape_input_to)
+            
+            
+        # TODO:  pseudo_quantize weights here
+            
         outputs[:, self.to_neuron_indices] = self.module(inputs).view(batch_size, len(self.to_neuron_indices))
         return outputs, output_counts
     

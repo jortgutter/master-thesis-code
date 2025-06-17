@@ -44,7 +44,7 @@ EXPERIMENTS = {
             'param_name': 'timestep_size',
             'values': [10000,20000],
             'Fs_train': [128],
-            'Fs_test':[128],
+            'Fs_test':[128, 64, 32, 16, 8, 4, 2, 1],
             'n_trials': 1,
             'n_epochs': 1,
             'verbose': False
@@ -90,6 +90,36 @@ EXPERIMENTS = {
             'Fs_test': [128],
             'n_trials': 1,
             'n_epochs': 1,
+            'verbose': False
+        }
+    },
+    'mubrain_longer_quantized_membrane_test': {
+        'build_params':{
+            'timestep_size': 20000,
+            'threshold': 1
+        },
+        'overhead': {
+            'param_name': 'neuron_model',
+            'values': ['mubrain', 'lif'],
+            'Fs_train': [128, 8, 4],
+
+            'n_trials': 1,
+            'n_epochs': 4,
+            'verbose': False
+        }
+    },
+    'mubrain_quantized_membrane_clamped_input': {
+        'build_params':{
+            'timestep_size': 20000,
+            'threshold': 1
+        },
+        'overhead': {
+            'param_name': 'neuron_model',
+            'values': ['mubrain', 'lif'],
+            'Fs_train': [128, 8, 4],
+
+            'n_trials': 1,
+            'n_epochs': 4,
             'verbose': False
         }
     }
