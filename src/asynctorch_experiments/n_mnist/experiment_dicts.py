@@ -81,6 +81,7 @@ EXPERIMENTS = {
     'mubrain_compare_quantized_membrane': {
         'build_params':{
             'timestep_size': 20000,
+            'threshold': 1
         },
         'overhead': {
             'param_name': 'neuron_model',

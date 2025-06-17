@@ -36,6 +36,7 @@ class Monitor:
             buffer_size=512
         self.buffer_size=buffer_size
         self.subject = subject
+        self.n_inputs=self.subject.spike_selector.architecture.async_network.n_inputs
         self.build_params=build_params
         self.experiment_params=experiment_params
         self.registered=False
@@ -66,15 +67,19 @@ class Monitor:
         subplot_size = 4
         for monitor_name in subject._monitor_names:
             monitor: Monitor = subject._monitors[monitor_name]
-            plot_func_list = monitor.get_plots()
-            if len(plot_func_list) >0:
-                subplot_shape = plot_func_list.shape
-                if len(subplot_shape) > 1:
-                    fig,axs = plt.subplots(*subplot_shape, figsize = [subplot_shape[0]*subplot_size, subplot_shape[1]*subplot_size])
+            plot_func_arr = monitor.get_plots()
+            print(f'{monitor_name}:')
+            if len(plot_func_arr) >0:
+                subplot_shape = plot_func_arr.shape
+                if subplot_shape[0] * subplot_shape[1] > 1:
+                    fig,axs = plt.subplots(*subplot_shape, figsize = [subplot_shape[1]*subplot_size, subplot_shape[0]*subplot_size])
                     for i in range(subplot_shape[0]):
                         for j in range(subplot_shape[1]):
                             ax = axs[i,j]
-                            plot_func_list[i,j](ax)
+                            plot_func_arr[i,j](ax, fig)
+                else:
+                    fig,axs = plt.subplots(*subplot_shape, figsize = [subplot_shape[1]*subplot_size, subplot_shape[0]*subplot_size])
+                    plot_func_arr[0,0](axs, fig)
                 plt.tight_layout()
                 param_name = monitor.experiment_params.param_name
                 param_val = monitor.build_params.get_value(param_name)
@@ -122,6 +127,7 @@ class Monitor:
     def plot(self):
         pass
     
+
 class TestMonitor(Monitor):
     def __init__(self, subject, *args, **kwargs):
         super().__init__(subject, *args, **kwargs)
@@ -177,6 +183,116 @@ class TestClass:
         
 class MembraneMonitor(Monitor):
     pass
+
+
+
+class InputMonitor(Monitor):
+    def __init__(
+        self, 
+        subject, 
+        build_params:BuildParams, 
+        experiment_params:ExperimentParams,
+        buffer_size=-1,
+        n_plot_rows = 5,
+        pseudo_string=''
+    ):
+        super().__init__(
+            subject,
+            build_params,
+            experiment_params,
+            buffer_size=buffer_size,
+            pseudo_string=pseudo_string
+        )
+        self.n_plot_rows = n_plot_rows
+        self.neuron_counts = get_neuron_shapes(subject)
+        self.buffer_idx = 0
+        self.done_logging=False
+        self.name = 'input monitor'
+        self.input_buffer = torch.zeros((self.buffer_size, self.n_inputs), requires_grad=False)
+            
+
+        
+        original_forward = subject.forward  # Save original method
+
+        def wrapper(subject, x, *args, **kwargs):
+            
+            self._log_input(x)  # Call your custom logic
+            return original_forward(x, *args, **kwargs)  # Call original forward
+
+        self.subject.forward = wrapper.__get__(subject, subject.__class__)  # Bind wrapper method
+                    
+        super().__post_init__()
+        
+    def _log_input(self, x):
+
+        if not self.done_logging:
+            self.input_buffer[self.buffer_idx] = x[0].clone()
+
+        
+        
+    def attempt_init(self):
+        return
+        subject:AsyncSimulator=self.subject
+        if subject.is_init():
+            architecture: MixedArchitecture = subject.spike_selector.architecture
+            network:AsyncNetwork = architecture.async_network
+            self.input_layer = network.input_layer
+
+            self.network_layers: nn.ModuleList[AsyncLayer] = network.layers
+            self.n_layers = len(self.network_layers)
+
+            
+    
+    def log(self):
+
+        if not self.is_init():
+            self.attempt_init()
+        subject = self.subject
+        if self.is_init() and subject.is_init() and not self.done_logging:
+            subject = self.subject
+            # weights
+            
+
+        # advance buffer idx
+        self.buffer_idx = min(self.buffer_idx+1, self.buffer_size-1)
+        if self.buffer_idx ==  self.buffer_size-1:
+            self.done_logging=True
+            
+    def get_draw_function(self,row, col):
+
+        ts = self.ts
+        
+    
+        data = self.input_buffer[:self.buffer_idx,:]
+        if type(data) == torch.Tensor:
+            data = data.detach().cpu().numpy()
+        name = self.names[0]
+
+                
+
+            
+        def draw(ax, fig):
+
+            im = ax.imshow(data.T, aspect='auto')
+            ax.set_title(f'{self.names[0]}')
+            ax.set_xlabel('ts')
+            ax.set_ylabel('input channel')
+            fig.colorbar(im, ax=ax)  
+            
+        
+        return draw
+    
+    def get_plots(self):
+        self.ts = np.arange(0, self.buffer_idx) 
+        
+        
+        self.n_cols = 1
+        self.n_rows = 1
+        self.names = ['network input spikes']
+        #self.data = [self.membrane_prespike_buffer[0], self.membrane_buffer[0], self.spike_buffer[0]]
+
+        draw_functions = np.array([[self.get_draw_function(row, col) for col in range(self.n_cols)] for row in range(self.n_rows)], dtype=object)
+        return np.array(draw_functions, dtype=object)
 
 class WeightMonitor(Monitor):
     def __init__(
@@ -243,12 +359,12 @@ class WeightMonitor(Monitor):
             self.n_layers = len(self.network_layers)
             network_shapes = [layer.module.weight.data.shape for layer in self.network_layers]
             
-            self.input_weight_buffer = torch.zeros((self.buffer_size, *input_shape))
-            self.network_weight_buffers = [torch.zeros((self.buffer_size, *shape)) for shape in network_shapes]
+            self.input_weight_buffer = torch.zeros((self.buffer_size, *input_shape), requires_grad=False)
+            self.network_weight_buffers = [torch.zeros((self.buffer_size, *shape), requires_grad=False) for shape in network_shapes]
             neuron_state = subject.neuron_state
-            self.spike_buffer = torch.zeros((self.buffer_size, *subject.spike_counts.shape))
-            self.membrane_buffer = torch.zeros((self.buffer_size, *neuron_state.membrane_potentials.shape))
-            self.membrane_prespike_buffer = torch.zeros((self.buffer_size, *neuron_state.membrane_potentials.shape))
+            self.spike_buffer = torch.zeros((self.buffer_size, *subject.spike_counts.shape), requires_grad=False)
+            self.membrane_buffer = torch.zeros((self.buffer_size, *neuron_state.membrane_potentials.shape), requires_grad=False)
+            self.membrane_prespike_buffer = torch.zeros((self.buffer_size, *neuron_state.membrane_potentials.shape), requires_grad=False)
     
     
     def get_draw_function(self,row, col):
@@ -269,7 +385,7 @@ class WeightMonitor(Monitor):
             data = self.network_weight_buffers[col-1]
             name = self.names[1][col-1]
             
-        def draw(ax):
+        def draw(ax,fig):
             ax.hist(data[capture_idx].flatten(), bins=128)
             ax.set_title(f'{name} (capture {capture_idx})')
             
@@ -285,12 +401,11 @@ class WeightMonitor(Monitor):
         
         self.starts = [0, *neuron_cumsum[:-1]]
         self.n_cols = len(self.network_layers)+1
-        self.n_rows = 5
+        self.n_rows = 3
         self.names = ['input weights', [f'layer {i} weights' for i in range(self.n_layers)]]
         #self.data = [self.membrane_prespike_buffer[0], self.membrane_buffer[0], self.spike_buffer[0]]
         self.stops=neuron_cumsum 
-        draw_functions = [[self.get_draw_function(row, col) for col in range(self.n_cols)] for row in range(self.n_rows)]
-
+        draw_functions = np.array([[self.get_draw_function(row, col) for col in range(self.n_cols)] for row in range(self.n_rows)], dtype=object)
         return np.array(draw_functions, dtype=object)
     
     def is_init(self):
@@ -332,10 +447,11 @@ class SpikeMonitor(Monitor):
     def attempt_init(self):
         subject=self.subject
         if subject.is_init():
-            self.spike_buffer = torch.zeros((self.buffer_size, *subject.spike_counts.shape))
+            self.spike_buffer = torch.zeros((self.buffer_size, subject.spike_counts.shape[1]), requires_grad=False)
             neuron_state = subject.neuron_state
-            self.membrane_buffer = torch.zeros((self.buffer_size, *neuron_state.membrane_potentials.shape))
-            self.membrane_prespike_buffer = torch.zeros((self.buffer_size, *neuron_state.membrane_potentials.shape))
+            self.membrane_buffer = torch.zeros((self.buffer_size, neuron_state.membrane_potentials.shape[1]), requires_grad=False)
+            self.membrane_prespike_buffer = torch.zeros((self.buffer_size, neuron_state.membrane_potentials.shape[1]), requires_grad=False)
+            print(f'initializing membrane buffer ({self.buffer_size}x{neuron_state.membrane_potentials.shape[1]})')
                 
         
     def log(self):
@@ -344,11 +460,11 @@ class SpikeMonitor(Monitor):
         subject = self.subject
         if self.is_init() and subject.is_init() and not self.done_logging:
             subject = self.subject
-            self.spike_buffer[self.buffer_idx] = subject.spike_counts.clone()
+            self.spike_buffer[self.buffer_idx] = subject.spike_counts[0].clone()
 
             neuron_state = subject.neuron_state
-            self.membrane_buffer[self.buffer_idx] = neuron_state.membrane_potentials.clone()
-            self.membrane_prespike_buffer[self.buffer_idx] = neuron_state.pre_spike_membrane_potentials.clone()
+            self.membrane_buffer[self.buffer_idx] = neuron_state.membrane_potentials[0].clone()
+            self.membrane_prespike_buffer[self.buffer_idx] = neuron_state.pre_spike_membrane_potentials[0].clone()
         # advance buffer idx
         self.buffer_idx = min(self.buffer_idx+1, self.buffer_size-1)
         if self.buffer_idx ==  self.buffer_size-1:
@@ -364,18 +480,53 @@ class SpikeMonitor(Monitor):
         start = self.starts[col]
         stop = self.stops[col]
         ts = self.ts
-        data = self.data[row][ts, start:stop]
+
         layer = col
-        if row == 2:
+        if row  == 0 :
+            data = self.data[0][ts, start:stop]
+            if type(data) == torch.Tensor:
+                data = data.detach().numpy()
+            def draw(ax, fig):
+                ax.plot(ts, data, alpha = 0.3)
+                ax.set_title(f'{self.names[0]}\n(layer {layer})')
+        elif row == 1:
+            data = self.data[0][ts, start:stop]
+            if type(data) == torch.Tensor:
+                data = data.detach().numpy()
+            data[data > 2] = 2
+            def draw(ax, fig):
+                
+                im = ax.imshow(data.T, aspect='auto')
+                ax.set_title(f'{self.names[0]}\n(layer {layer})')
+                fig.colorbar(im, ax=ax)  
+        elif row == 2:
+            data = self.data[1][ts, start:stop]
+            if type(data) == torch.Tensor:
+                data = data.detach().numpy()
+                
+            def draw(ax, fig):
+                ax.plot(ts, data, alpha = 0.3)
+                ax.set_title(f'{self.names[1]}\n(layer {layer})')
+        elif row == 3:
+            data = self.data[1][ts, start:stop].detach().numpy()
+            data[data > 2]= 2
+            def draw(ax, fig):
+                im = ax.imshow(data.T, aspect='auto')
+                ax.set_title(f'{self.names[1]}\n(layer {layer})')
+                fig.colorbar(im, ax=ax)  
+        elif row == 4:
+            
+            data = self.data[2][ts, start:stop]
+            if type(data) == torch.Tensor:
+                data = data.detach().numpy()
+                
             spikes = np.where(data>0)
-            def draw(ax):
+            def draw(ax, fig):
                 ax.scatter(spikes[0], spikes[1], s=4)
-                ax.set_title(f'{self.names[row]}\n(layer {layer})')
+                ax.set_title(f'{self.names[2]}\n(layer {layer})')
         else:
-            def draw(ax):
-                n_samples = data.shape[1]
-                ax.plot(ts, data.detach().numpy(), alpha = 0.3)
-                ax.set_title(f'{self.names[row]}\n(layer {layer})')
+            draw = None
+
                 
         return draw
     
@@ -384,12 +535,11 @@ class SpikeMonitor(Monitor):
         neuron_cumsum = np.cumsum(self.neuron_counts)
         self.starts = [0, *neuron_cumsum[:-1]]
         self.n_cols = len(self.neuron_counts)
-        self.n_rows = 3
-        self.data = [self.membrane_prespike_buffer[:,0,:], self.membrane_buffer[:,0,:], self.spike_buffer[:,0,:]]
+        self.n_rows = 5
+        self.data = [self.membrane_prespike_buffer, self.membrane_buffer, self.spike_buffer]
         self.names = ['prespike membrane', 'postspike membrane', 'spike count']
         self.stops=neuron_cumsum 
-        draw_functions = [[self.get_draw_function(row, col) for col in range(self.n_cols)] for row in range(self.n_rows)]
-
+        draw_functions = np.array([[self.get_draw_function(row, col) for col in range(self.n_cols)] for row in range(self.n_rows)], dtype=object)
         return np.array(draw_functions, dtype=object)
     
     
