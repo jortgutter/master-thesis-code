@@ -199,6 +199,7 @@ class BuildParams(Params):
     # data parameters
     dataset:str = hashtag()
     batchsize:int = hashtag()
+    limit_max_spikes: int = hashtag()
     # training parameters
     backprop_threshold: float = hashtag()
     surrogate_alpha: float = hashtag()

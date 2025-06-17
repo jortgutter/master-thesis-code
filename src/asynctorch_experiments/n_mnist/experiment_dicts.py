@@ -23,6 +23,7 @@ EXPERIMENTS = {
             # data parameters
             'dataset': 'N_MNIST',
             'batchsize': 64,
+            'limit_max_spikes': -1,
             # training parameters
             'backprop_threshold': None,
             'surrogate_alpha': 2.,
@@ -93,6 +94,21 @@ EXPERIMENTS = {
             'verbose': False
         }
     },
+    'mubrain_compare_quantized_membrane_sanity_check': {
+        'build_params':{
+            'timestep_size': 20000,
+            'threshold': 1
+        },
+        'overhead': {
+            'param_name': 'neuron_model',
+            'values': ['mubrain', 'lif'],
+            'Fs_train': [128],
+            'Fs_test': [128],
+            'n_trials': 1,
+            'n_epochs': 2,
+            'verbose': False
+        }
+    },
     'mubrain_longer_quantized_membrane_test': {
         'build_params':{
             'timestep_size': 20000,
@@ -108,18 +124,35 @@ EXPERIMENTS = {
             'verbose': False
         }
     },
-    'mubrain_quantized_membrane_clamped_input': {
+    'lif_test_clamped_input': {
         'build_params':{
             'timestep_size': 20000,
-            'threshold': 1
+            'threshold': 1,
+            'neuron_model': 'lif',
         },
         'overhead': {
-            'param_name': 'neuron_model',
-            'values': ['mubrain', 'lif'],
-            'Fs_train': [128, 8, 4],
-
+            'param_name': 'limit_max_spikes',
+            'values': [-1, 4, 2, 1],
+            'Fs_train': [128],
+            'Fs_test': [128],
             'n_trials': 1,
-            'n_epochs': 4,
+            'n_epochs': 1,
+            'verbose': False
+        }
+    },
+    'mubrain_test_clamped_input': {
+        'build_params':{
+            'timestep_size': 20000,
+            'threshold': 1,
+            'neuron_model': 'mubrain',
+        },
+        'overhead': {
+            'param_name': 'limit_max_spikes',
+            'values': [-1, 4, 2, 1],
+            'Fs_train': [128],
+            'Fs_test': [128],
+            'n_trials': 1,
+            'n_epochs': 1,
             'verbose': False
         }
     }

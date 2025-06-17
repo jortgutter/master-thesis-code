@@ -12,6 +12,16 @@ import numpy as np
 
 import matplotlib.animation as animation
 
+
+import numpy as np
+
+class Clamp:
+    def __init__(self, max_value):
+        self.max_value = max_value
+
+    def __call__(self, x):
+        return np.clip(x, a_min=None, a_max=self.max_value)
+
 class N_MNIST(AsyncDataSet):
     def load_data(
             build_params: BuildParams,
@@ -22,6 +32,10 @@ class N_MNIST(AsyncDataSet):
         timestep_size=build_params.timestep_size
         project_path=build_params.project_path
         
+        max_input_spikes = -1
+        if build_params.limit_max_spikes:
+            max_input_spikes = build_params.limit_max_spikes
+        
         if train or test:
             return N_MNIST.resample_data(
                 input_shape=input_shape,
@@ -29,7 +43,8 @@ class N_MNIST(AsyncDataSet):
                 project_path=project_path,
                 train=train,
                 test=test,
-                verbose=build_params.verbose
+                verbose=build_params.verbose,
+                max_input_spikes=max_input_spikes
             )
         else: return None, None, None
 
@@ -39,7 +54,8 @@ class N_MNIST(AsyncDataSet):
         project_path: MyPath, 
         train: bool,
         test: bool,
-        verbose: bool
+        verbose: bool,
+        max_input_spikes:int=-1
     ):
         data_path = project_path.change_dir('n_mnist', 'data_small')
         data_path = os.path.join(project_path, 'n_mnist', 'data_small')
@@ -47,22 +63,39 @@ class N_MNIST(AsyncDataSet):
         data_size_downsampled = (*input_shape[1:], input_shape[0])
         if verbose:
             print(f'resampling N_MNIST (in:{data_size_downsampled}, dt:{timestep_size})')
-        transform = transforms.Compose([
-            transforms.Downsample(sensor_size=data_size_orig, target_size=data_size_downsampled[:-1]),
-            transforms.ToFrame(sensor_size=data_size_downsampled, time_window=timestep_size),
-        ])
-        train_dataset = tonic.datasets.NMNIST(
-            save_to=data_path, 
-            transform=transform, 
-            train=True, 
-            first_saccade_only=True
-        ) if train else None
-        test_dataset = tonic.datasets.NMNIST(
-            save_to=data_path, 
-            transform=transform, 
-            train=False, 
-            first_saccade_only=True
-        ) if test else None
+        
+        
+        if max_input_spikes > 0:
+            
+            transform = transforms.Compose([
+                transforms.Downsample(sensor_size=data_size_orig, target_size=data_size_downsampled[:-1]),
+                transforms.ToFrame(sensor_size=data_size_downsampled, time_window=timestep_size),
+                Clamp(max_value=max_input_spikes)
+            ])
+        else:
+            transform = transforms.Compose([
+                transforms.Downsample(sensor_size=data_size_orig, target_size=data_size_downsampled[:-1]),
+                transforms.ToFrame(sensor_size=data_size_downsampled, time_window=timestep_size)
+            ])
+            
+        train_dataset = None
+        test_dataset = None
+        if train:
+            train_dataset = tonic.datasets.NMNIST(
+                save_to=data_path, 
+                transform=transform, 
+                train=True, 
+                first_saccade_only=True
+            )
+            if max_input_spikes > 0:
+                train_dataset
+        if test:
+            test_dataset = tonic.datasets.NMNIST(
+                save_to=data_path, 
+                transform=transform, 
+                train=False, 
+                first_saccade_only=True
+            )
         
         collate_fn = tonic.collation.PadTensors(batch_first=False)
         return train_dataset, test_dataset, collate_fn
